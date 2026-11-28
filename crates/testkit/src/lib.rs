@@ -17,6 +17,11 @@
 //!   `u16` planes, tolerances with an optional 3×3 neighborhood, a difference image, PNG reading
 //!   and writing with size limits, golden reference checks and `assert_similar!`.
 //!
+//! On native targets, the `fixtures` module locates generated test fixtures under `<workspace>/target/fixtures`,
+//! generates a missing one into a claimed temporary sibling, publishes it under a per-output lock that
+//! keeps a complete file another process published first, and prints the `FIXTURE made`, `cached` and
+//! `skipped` lines that FilmCraft's `cargo xtask fixtures` counts.
+//!
 //! [`rng`] holds two seeded generators for repeatable test input, [`rng::XorShift64`] and
 //! [`rng::XorShift64Star`], each with `next`, `below`, `byte` and `fill`.
 //!
@@ -72,6 +77,8 @@
 pub mod corpus;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod deadline;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod fixtures;
 pub mod fonts;
 pub mod guards;
 pub mod hostile;
