@@ -7,7 +7,7 @@ test_root=$(mktemp -d "${TMPDIR:-/tmp}/craft-pdf-backends.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/target}"
 patches=()
-for backend in hayro hayro-interpret hayro-syntax hayro-jbig2 hayro-cmap hayro-postscript vello_common vello_cpu; do
+for backend in hayro hayro-interpret hayro-syntax hayro-jbig2 hayro-cmap hayro-postscript vello_common vello_cpu kurbo; do
   cp -R "$root/vendor/$backend" "$test_root/$backend"
   patches+=(--config "patch.crates-io.$backend.path=\"$test_root/$backend\"")
 done
@@ -25,6 +25,7 @@ cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --test p
 cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --test paperjs load_errors_are_reported
 cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --lib --features generators generators::
 cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --doc
+cargo test --manifest-path "$test_root/kurbo/Cargo.toml" --locked --all-features
 cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --example visualize_op
 cargo test --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --example curve_metrics --features metrics
 cargo check --manifest-path "$test_root/linesweeper/Cargo.toml" --locked --all-targets --all-features
