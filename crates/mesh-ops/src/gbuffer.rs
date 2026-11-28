@@ -5,12 +5,20 @@
 use glam::{Vec2, Vec3, Vec4};
 use rayon::prelude::*;
 
-use crate::Mesh;
+use crate::{GeomError, Mesh, Result};
 
 /// Texel not covered by any triangle.
 pub const NO_TRI: u32 = u32::MAX;
 
 const BAND: u32 = 32;
+
+/// Largest width or height of a G-buffer, in texels.
+pub const MAX_SIDE: u32 = 16_384;
+
+/// Largest texel count of a G-buffer (8,192 × 8,192). Each texel takes 12 bytes, so a full
+/// buffer takes 768 MiB and its largest vector (`bary`) 512 MiB, which fits a 32-bit address
+/// space.
+pub const MAX_TEXELS: usize = 1 << 26;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UvGBuffer {
@@ -37,14 +45,42 @@ pub struct Surface {
     pub tri: u32,
 }
 
+/// Checks a requested G-buffer size against [`MAX_SIDE`] and [`MAX_TEXELS`] and returns its
+/// texel count.
+fn checked_texels(width: u32, height: u32) -> Result<usize> {
+    for (name, side) in [("width", width), ("height", height)] {
+        if side == 0 || side > MAX_SIDE {
+            return Err(GeomError::Invalid(format!("G-buffer {name} {side} is outside 1..={MAX_SIDE}")));
+        }
+    }
+    // Both sides are at most MAX_SIDE, so the product fits in usize on 32-bit targets too.
+    let n = width as usize * height as usize;
+    if n > MAX_TEXELS {
+        return Err(GeomError::Invalid(format!("G-buffer {width}×{height} has more than {MAX_TEXELS} texels")));
+    }
+    Ok(n)
+}
+
+/// A vector of `n` copies of `value`, or an error when the memory cannot be reserved.
+fn filled<T: Clone>(n: usize, value: T) -> Result<Vec<T>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).map_err(|e| GeomError::Invalid(format!("G-buffer of {n} texels: {e}")))?;
+    v.resize(n, value);
+    Ok(v)
+}
+
 fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
     (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
 }
 
 impl UvGBuffer {
     /// Rasterize the triangles of material `material` at `width × height`.
-    pub fn new(mesh: &Mesh, material: usize, width: u32, height: u32) -> UvGBuffer {
-        let (w, h) = (width.max(1), height.max(1));
+    ///
+    /// Returns an error when `width` or `height` is 0 or above [`MAX_SIDE`], when
+    /// `width × height` is above [`MAX_TEXELS`], or when the buffer's memory cannot be reserved.
+    pub fn new(mesh: &Mesh, material: usize, width: u32, height: u32) -> Result<UvGBuffer> {
+        let n = checked_texels(width, height)?;
+        let (w, h) = (width, height);
         let size = Vec2::new(w as f32, h as f32);
         let bands = h.div_ceil(BAND) as usize;
         let mut bins: Vec<Vec<u32>> = vec![Vec::new(); bands];
@@ -61,10 +97,9 @@ impl UvGBuffer {
                 bin.push(t as u32);
             }
         }
-        let n = w as usize * h as usize;
-        let mut tri = vec![NO_TRI; n];
-        let mut bary = vec![[0.0f32; 2]; n];
-        let band_len = (BAND * w) as usize;
+        let mut tri = filled(n, NO_TRI)?;
+        let mut bary = filled(n, [0.0f32; 2])?;
+        let band_len = BAND as usize * w as usize;
         let overlaps: u32 = tri
             .par_chunks_mut(band_len)
             .zip(bary.par_chunks_mut(band_len))
@@ -93,7 +128,7 @@ impl UvGBuffer {
                             if w0 < eps || w1 < eps || w2 < eps {
                                 continue;
                             }
-                            let i = ((y - row0) * w + x) as usize;
+                            let i = (y - row0) as usize * w as usize + x as usize;
                             if let (Some(slot), Some(bw)) = (tri.get_mut(i), bary.get_mut(i)) {
                                 if *slot != NO_TRI {
                                     overlaps += 1;
@@ -108,7 +143,7 @@ impl UvGBuffer {
                 overlaps
             })
             .sum();
-        UvGBuffer { width: w, height: h, tri, bary, overlaps }
+        Ok(UvGBuffer { width: w, height: h, tri, bary, overlaps })
     }
 
     pub fn covered(&self, i: usize) -> bool {
@@ -166,7 +201,7 @@ mod tests {
             "m",
         )
         .unwrap();
-        let g = UvGBuffer::new(&m, 0, 8, 8);
+        let g = UvGBuffer::new(&m, 0, 8, 8).unwrap();
         for y in 0..8u32 {
             for x in 0..8u32 {
                 let inside = (x as f32 + 0.5) <= (y as f32 + 0.5);
@@ -180,15 +215,37 @@ mod tests {
     fn overlapping_and_degenerate_triangles() {
         let uv = vec![Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0), Vec2::new(0.5, 0.5)];
         let m = Mesh::from_parts(vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z], None, uv, vec![0, 1, 2, 0, 1, 2, 0, 3, 3], "m").unwrap();
-        let g = UvGBuffer::new(&m, 0, 16, 16);
+        let g = UvGBuffer::new(&m, 0, 16, 16).unwrap();
         assert!(g.overlaps > 0);
         assert!(g.covered_count() > 0);
     }
 
     #[test]
+    fn sizes_outside_the_limits_are_rejected() {
+        // 2^27 + 1 texels wide: 32 rows of it overflow u32.
+        assert!(checked_texels((1 << 27) + 1, 1).is_err());
+        assert!(checked_texels(u32::MAX, u32::MAX).is_err());
+        assert!(checked_texels(0, 8).is_err());
+        assert!(checked_texels(8, 0).is_err());
+        assert!(checked_texels(MAX_SIDE + 1, 1).is_err());
+        assert!(checked_texels(1, MAX_SIDE + 1).is_err());
+        // Both sides in range, but more than MAX_TEXELS texels.
+        assert!(checked_texels(MAX_SIDE, MAX_SIDE).is_err());
+        assert!(checked_texels(MAX_SIDE, 4_097).is_err());
+        assert_eq!(checked_texels(MAX_SIDE, 4_096), Ok(MAX_TEXELS));
+        assert_eq!(checked_texels(MAX_SIDE, 1), Ok(MAX_SIDE as usize));
+
+        let m = primitives::sphere(1.0, 8, 4);
+        assert!(UvGBuffer::new(&m, 0, MAX_SIDE + 1, 1).is_err());
+        assert!(UvGBuffer::new(&m, 0, 0, 1).is_err());
+        let g = UvGBuffer::new(&m, 0, 64, 32).unwrap();
+        assert_eq!((g.width, g.height, g.tri.len(), g.bary.len()), (64, 32, 2_048, 2_048));
+    }
+
+    #[test]
     fn sphere_surface_lies_on_the_sphere() {
         let m = primitives::sphere(2.0, 64, 32);
-        let g = UvGBuffer::new(&m, 0, 128, 128);
+        let g = UvGBuffer::new(&m, 0, 128, 128).unwrap();
         assert!(g.covered_count() > 128 * 128 * 9 / 10, "{}", g.covered_count());
         for i in (0..g.tri.len()).step_by(97) {
             if let Some(s) = g.surface(&m, i) {

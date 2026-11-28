@@ -324,7 +324,7 @@ mod tests {
         assert!(charts >= 1);
         m.validate().unwrap();
         assert!(m.uvs.iter().all(|uv| (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y)));
-        let g = UvGBuffer::new(&m, 0, 512, 512);
+        let g = UvGBuffer::new(&m, 0, 512, 512).unwrap();
         let covered = g.covered_count() as f32;
         let coverage = covered / (512.0 * 512.0);
         assert!(coverage > min_coverage, "coverage {coverage} with {charts} charts");
@@ -348,7 +348,7 @@ mod tests {
         ball.uvs.clear();
         auto_unwrap(&mut ball, 2.0, 1024).unwrap();
         for m in 0..ball.materials.len() {
-            let g = UvGBuffer::new(&ball, m, 512, 512);
+            let g = UvGBuffer::new(&ball, m, 512, 512).unwrap();
             assert!((g.overlaps as f32) < g.covered_count() as f32 * 0.005 + 1.0, "material {m}: {} overlaps", g.overlaps);
         }
     }

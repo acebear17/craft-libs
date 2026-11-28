@@ -15,7 +15,7 @@ pub mod unwrap;
 
 pub use bvh::{Bvh, Hit};
 pub use camera::{OrbitCamera, Ray};
-pub use gbuffer::{NO_TRI, Surface, UvGBuffer, surface_at};
+pub use gbuffer::{MAX_SIDE, MAX_TEXELS, NO_TRI, Surface, UvGBuffer, surface_at};
 pub use glam;
 pub use mesh::{BaseColor, MAX_TRIANGLES, Mesh, SubMesh};
 
