@@ -58,7 +58,9 @@ pub(crate) fn pointer_art(env: &Env, cursor: &PaintedCursor, closed: bool, marks
         PaintedCursor::Tool { icon, hotspot, badge, .. } => {
             let side = env.tokens.size.icon.md;
             let icon = SvgIcon::of(&env.tokens, env.direction, side, icon, Mirror::Auto);
-            tool(&pen, icon, *hotspot, *badge, side);
+            // The set's own drawing of the icon may put its working point elsewhere than the one the tool named.
+            let hotspot = icon.and_then(|icon| icon.tip()).unwrap_or(*hotspot);
+            tool(&pen, icon, hotspot, *badge, side);
         }
         PaintedCursor::Badged { badge, .. } => badge_beside(&pen, *badge),
         PaintedCursor::Turn { toward, .. } => turn(&pen, *toward),
@@ -82,7 +84,7 @@ pub(crate) fn pointer_art(env: &Env, cursor: &PaintedCursor, closed: bool, marks
 }
 
 /// The icon sets draw on a box this many units on a side; a tool pointer's hotspot is in these.
-const ICON_UNITS: f32 = 24.0;
+pub(crate) const ICON_UNITS: f32 = 24.0;
 /// Where a badge sits beside a system pointer arrow: toward its lower right.
 const BADGE_BESIDE: [f32; 2] = [12.0, 12.0];
 /// Half the side of a badge glyph.

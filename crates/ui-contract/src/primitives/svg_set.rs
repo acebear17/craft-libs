@@ -141,6 +141,15 @@ pub(crate) fn entry_stroke_width(entry: Entry, set: IconSet) -> Option<f32> {
     }
 }
 
+/// The working point of `entry` in `set` (a pen's nib), in the 24-unit icon box as drawn unmirrored; `None` for an
+/// app icon and for a catalog icon the manifest names no tip for.
+pub(crate) fn entry_tip(entry: Entry, set: IconSet) -> Option<[f32; 2]> {
+    match entry {
+        Entry::Catalog(index) => tip(index, set),
+        Entry::App { .. } => None,
+    }
+}
+
 /// One class set of an icon's drawing. An app icon's parts marked `class="accent"` read in the accent ink and those
 /// marked `class="fixed"` keep their own colours; every other part reads in the icon's ink.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -47,7 +47,7 @@ impl<'a> AnchorTool<'a> {
 
 /// The cursor of `tool` off the overlay's parts with `mods` held; `precise` is the canvas's precise cursor.
 pub(super) fn cursor_of(tool: PathTool, mods: Mods, precise: bool) -> PaintedCursor {
-    // The pen's tip is the bottom left corner of the icon's box.
+    // The pen's tip where an icon set names none; each set's own drawing names where its nib is.
     let pen = |badge| PaintedCursor::tool(ToolIcon::Pen.icon(), Vec2::Y * ICON_BOX, Some(badge));
     match tool {
         _ if precise => PaintedCursor::Crosshair,

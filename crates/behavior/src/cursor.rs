@@ -151,7 +151,8 @@ pub enum PaintedCursor {
     Tool {
         /// The icon.
         icon: IconId,
-        /// The icon point that sits on the pointer, in the icon's own 24-unit box.
+        /// The icon point that sits on the pointer, in the icon's own 24-unit box. An icon whose drawing in the
+        /// theme's icon set names its own working point (a pen's nib) puts that point on the pointer instead.
         hotspot: Vec2,
         /// A mark beside it.
         badge: Option<CursorBadge>,

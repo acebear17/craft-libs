@@ -695,7 +695,7 @@ impl CanvasTool for PenTool {
             PenMode::Pen => ToolIcon::Pen,
             PenMode::Curvature => ToolIcon::CurvaturePen,
         };
-        // The pen's tip is the bottom left corner of the icon's box.
+        // The pen's tip where an icon set names none; each set's own drawing names where its nib is.
         let badge = if self.closes(cx) { Some(CursorBadge::Close) } else { self.continues(cx).then_some(CursorBadge::Continue) };
         Cursor::Painted(PaintedCursor::tool(icon.icon(), Vec2::Y * ICON_BOX, badge))
     }

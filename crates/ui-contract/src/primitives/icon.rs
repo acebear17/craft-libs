@@ -9,7 +9,7 @@ use craft_behavior::IconId;
 use craft_i18n::Direction;
 use craft_theme::{IconPackId, Srgba};
 use egui::emath::GuiRounding as _;
-use egui::{Color32, Painter, Rect, pos2, vec2};
+use egui::{Color32, Painter, Rect, Vec2, pos2, vec2};
 use std::any::Any;
 
 pub use super::svg_set::IconSet;
@@ -342,6 +342,14 @@ impl SvgIcon {
         };
         let mirrored = direction == Direction::Rtl && svg_set::directional(entry) && mirror == Mirror::Auto;
         Some(SvgIcon { entry, set: tokens.icons(), mirrored, stroke: stroke(tokens, side) })
+    }
+
+    /// The drawing's working point (a pen's nib) in the 24-unit icon box, as painted: flipped across the box when the
+    /// icon is mirrored. `None` for an icon the manifest names no tip for in this set.
+    pub(crate) fn tip(&self) -> Option<Vec2> {
+        let [x, y] = svg_set::entry_tip(self.entry, self.set)?;
+        let x = if self.mirrored { super::pointer_art::ICON_UNITS - x } else { x };
+        Some(vec2(x, y))
     }
 
     /// The image's side in pixels and its stroke in 64ths of a pixel for a square of `side` points at `ppp`: the

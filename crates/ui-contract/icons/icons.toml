@@ -13,6 +13,9 @@
 # `stroke_drawings`: the suite's own drawings in a fill set that draw with strokes (ATTRIBUTION.md);
 # their widths are rewritten like a stroke set's, from `drawing_stroke_width`, their own width in
 # view-box units. A fill set's file with `stroke="currentColor"` must be listed.
+# `tip`: per set, the drawing's working point as [x, y] in the 24-unit icon box (a pen's nib); a
+# pointer drawn from the icon puts it on the hotspot. Only for a set with its own file for the icon;
+# a set without one uses the base set's tip, as it uses its file.
 
 [[set]]
 id = "lucide"
@@ -945,6 +948,8 @@ lucide = "pen-tool"
 phosphor = "pen-nib"
 carbon = "pen--fountain"
 tabler = "vector-bezier-2"  # near: bezier curve, no pen nib
+# Lucide, Phosphor, Carbon: the nib. Tabler has no nib; its top left anchor, where the curve starts.
+tip = { lucide = [3.0, 3.0], phosphor = [2.5, 21.5], carbon = [1.8, 22.2], tabler = [5.0, 5.0] }
 
 [[icon]]
 name = "pentagon"
@@ -1113,6 +1118,7 @@ phosphor = "pen-add-anchor"
 name = "pen_curvature"
 directional = false
 phosphor = "pen-curvature"
+tip = { phosphor = [3.0, 5.2] }
 
 [[icon]]
 name = "pen_delete_anchor"

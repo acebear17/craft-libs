@@ -26,6 +26,8 @@ struct Entry {
     directional: bool,
     /// One file stem per set, in set order; `None` where a non-base set has no file.
     files: Vec<Option<String>>,
+    /// The drawing's working point (a pen's nib) in the 24-unit icon box, per set in set order; only where the set has a file.
+    tips: Vec<Option<[f64; 2]>>,
 }
 
 fn main() {
@@ -150,8 +152,33 @@ fn icons(manifest: &Table, sets: &[Set]) -> Vec<Entry> {
                     }
                     file.map(str::to_owned)
                 })
+                .collect::<Vec<_>>();
+            let tip_table =
+                table.get("tip").map(|v| v.as_table().unwrap_or_else(|| panic!("icons/icons.toml: icon `{name}`'s `tip` is not a table")));
+            if let Some(tip_table) = tip_table {
+                for key in tip_table.keys() {
+                    assert!(sets.iter().any(|s| &s.id == key), "icons/icons.toml: icon `{name}` has a tip for `{key}`, which is not a set");
+                }
+            }
+            let tips = sets
+                .iter()
+                .zip(&files)
+                .map(|(set, file)| {
+                    let point = tip_table?.get(&set.id)?;
+                    assert!(file.is_some(), "icons/icons.toml: icon `{name}` has a tip for `{}`, which has no file for it", set.id);
+                    let xy: Vec<f64> = point
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).collect())
+                        .unwrap_or_default();
+                    assert!(
+                        xy.len() == 2 && xy.iter().all(|c| (0.0..=24.0).contains(c)),
+                        "icons/icons.toml: icon `{name}`'s tip for `{}` is not [x, y] inside the 24-unit box",
+                        set.id
+                    );
+                    Some([xy[0], xy[1]])
+                })
                 .collect();
-            Entry { name, directional, files }
+            Entry { name, directional, files, tips }
         })
         .collect();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -271,6 +298,24 @@ fn generate(root: &str, sets: &[Set], icons: &[Entry]) -> String {
             );
         }
     }
+    out.push_str("    }\n}\n\n");
+
+    out.push_str(
+        "/// The working point (a pen's nib), in the 24-unit icon box, of the document `svg` gives for the same icon and set; `None` where the manifest names none.\n",
+    );
+    out.push_str("pub(super) const fn tip(index: usize, set: IconSet) -> Option<[f32; 2]> {\n    match set {\n");
+    for set in sets {
+        let upper = set.id.to_ascii_uppercase();
+        if set.base {
+            let _ = writeln!(out, "        IconSet::{} => {upper}_TIPS[index],", camel(&set.id));
+        } else {
+            let _ = writeln!(
+                out,
+                "        IconSet::{} => match {upper}[index] {{\n            Some(_) => {upper}_TIPS[index],\n            None => {base_upper}_TIPS[index],\n        }},",
+                camel(&set.id)
+            );
+        }
+    }
     out.push_str("    }\n}\n");
 
     for (index, set) in sets.iter().enumerate() {
@@ -297,6 +342,12 @@ fn generate(root: &str, sets: &[Set], icons: &[Entry]) -> String {
                 .as_ref()
                 .and_then(|file| set.stroke_width.or_else(|| set.drawings.contains(file).then_some(set.drawing_stroke_width).flatten()));
             let _ = writeln!(out, "    {},", width.map_or("None".to_owned(), |w| format!("Some({:?})", w as f32)));
+        }
+        out.push_str("];\n");
+        let _ = writeln!(out, "\nconst {}_TIPS: [Option<[f32; 2]>; {n}] = [", set.id.to_ascii_uppercase());
+        for icon in icons {
+            let tip = icon.tips[index].map_or("None".to_owned(), |[x, y]| format!("Some([{:?}, {:?}])", x as f32, y as f32));
+            let _ = writeln!(out, "    {tip},");
         }
         out.push_str("];\n");
     }

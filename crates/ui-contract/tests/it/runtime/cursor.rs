@@ -263,6 +263,48 @@ fn tinted_theme(pinned: bool) -> Arc<ThemeDef> {
     Arc::new(format::parse(json.as_bytes()).expect("the trial's theme parses").theme)
 }
 
+/// A library theme that draws its icons from the built-in set `pack` (`craft.lucide`, ...).
+fn pack_theme(pack: &str) -> Arc<ThemeDef> {
+    let json = format!(
+        r##"{{
+            "schema": "craft-design-theme", "schema_version": 1,
+            "id": "trial.cursor-pack", "name": "Cursor pack", "icon_pack": "craft.{pack}",
+            "seeds": {{
+                "neutral": "#535353", "accent": "#78ADF6",
+                "status": {{ "good": "#85DC6A", "warn": "#E8B046", "bad": "#FF8080", "info": "#78ADF6" }}
+            }}
+        }}"##
+    );
+    Arc::new(format::parse(json.as_bytes()).expect("the trial's theme parses").theme)
+}
+
+/// A pen pointer puts the nib of the theme's own drawing of the pen on the hotspot, in every icon set: the sets draw
+/// the nib in different corners, so the corner the tool names is only the fallback (craft-libs#4106).
+#[trial]
+fn a_pen_pointer_puts_the_nib_of_every_icon_set_on_the_hotspot() {
+    // The tool names the bottom left corner, as the pen tools do.
+    let corner = Vec2::new(0.0, 24.0);
+    for pack in ["lucide", "phosphor", "carbon", "tabler"] {
+        for scale in [1.0, 2.0] {
+            let mut frames = frames(linux(), scale);
+            frames.root(RootEnv::new().library_theme(pack_theme(pack)).mode(ModeChoice::Dark));
+            for icon in ["pen_tool", "pen_curvature"] {
+                let image = painted(&mut frames, PaintedCursor::tool(IconId::new(icon), corner, None)).image.unwrap();
+                let [hx, hy] = image.hotspot.map(i32::from);
+                // Within a device pixel and a half of the hotspot, so a nib drawn a halo off still counts.
+                let reach = (1.5 * scale).ceil() as i32;
+                let inked = (-reach..=reach).any(|dy| {
+                    (-reach..=reach).any(|dx| {
+                        let (x, y) = (hx + dx, hy + dy);
+                        x >= 0 && y >= 0 && x < i32::from(image.size[0]) && y < i32::from(image.size[1]) && pixel(&image, x, y)[3] > 0
+                    })
+                });
+                assert!(inked, "{pack} {icon} at {scale}: the drawing touches the hotspot");
+            }
+        }
+    }
+}
+
 /// A painted pointer is drawn in `overlay.cursor`: a theme that pins it gets a tool's icon and the pointer's own marks
 /// in the pin, with no pixel in `overlay.stroke`, and a theme that does not gets them in `overlay.stroke`, which the
 /// cursor colour follows.

@@ -152,7 +152,7 @@ pub(super) fn hover_cursor(tool: BezierTool, hit: BezierHit, mods: Mods, precise
     let cursor = match hit {
         _ if precise => PaintedCursor::Crosshair,
         _ if tool.takes_subpath(mods) => PaintedCursor::badged(CursorIcon::Default, CursorBadge::Add),
-        // The pen's tip is the bottom left corner of the icon's box.
+        // The pen's tip where an icon set names none; each set's own drawing names where its nib is.
         BezierHit::Segment { .. } => PaintedCursor::tool(ToolIcon::Pen.icon(), Vec2::Y * ICON_BOX, Some(CursorBadge::Add)),
         BezierHit::Anchor { .. } | BezierHit::Handle { .. } => PaintedCursor::arrow(false),
     };
