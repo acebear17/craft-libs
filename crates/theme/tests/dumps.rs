@@ -185,19 +185,49 @@ fn comfortable_page_spacing_is_production_s() {
 /// The contrast muted text keeps over faint text on the same ground.
 const FAINT_TO_MUTED_GAP: f64 = 1.25;
 
-/// In every built-in at standard contrast, faint text reads at the body-text minimum on each fill the theme pairs text
-/// with, muted text has at least [`FAINT_TO_MUTED_GAP`] times faint text's contrast there, and normal text has more
-/// contrast than muted text. A fill where normal text itself is at or below the minimum times the gap is left out,
-/// since no muted grey fits between the two there; those pairs stay listed as warnings in the dumps.
+/// The fills [`faint_text_meets_the_text_minimum_below_muted_text`] leaves out, as `theme[ app] mode on fill`.
+const NO_ROOM_FOR_MUTED: &[&str] = &[
+    "craft.artcraft Dark on surface.raised",
+    "craft.artcraft Dark on surface.control",
+    "craft.artcraft Dark on state.hover",
+    "craft.artcraft Dark on state.pressed",
+    "craft.artcraft deckcraft Dark on surface.raised",
+    "craft.artcraft deckcraft Dark on surface.control",
+    "craft.artcraft deckcraft Dark on state.hover",
+    "craft.artcraft deckcraft Dark on state.pressed",
+    "craft.artcraft pdfcraft Dark on surface.control",
+    "craft.artcraft pdfcraft Dark on state.hover",
+    "craft.artcraft pdfcraft Dark on state.pressed",
+    "craft.artcraft soundcraft Dark on surface.raised",
+    "craft.artcraft soundcraft Dark on surface.control",
+    "craft.artcraft soundcraft Dark on state.hover",
+    "craft.artcraft soundcraft Dark on state.pressed",
+    "craft.solarized-dark Dark on surface.background",
+    "craft.solarized-dark Dark on surface.panel",
+    "craft.solarized-dark Dark on surface.chrome",
+    "craft.solarized-dark Dark on surface.raised",
+    "craft.solarized-dark Dark on surface.sunken",
+    "craft.solarized-dark Dark on surface.control",
+    "craft.solarized-dark Dark on state.hover",
+    "craft.solarized-dark Dark on state.pressed",
+];
+
+/// In every built-in at standard contrast, alone and with each app palette it carries, faint text reads at the
+/// body-text minimum on each fill the theme pairs text with, muted text has at least [`FAINT_TO_MUTED_GAP`] times faint
+/// text's contrast there, and normal text has more contrast than muted text. A fill where normal text itself is at or
+/// below the minimum times the gap is left out, since no muted grey fits between the two there; those pairs stay listed
+/// as warnings in the dumps, and the left-out fills must match [`NO_ROOM_FOR_MUTED`].
 #[test]
 fn faint_text_meets_the_text_minimum_below_muted_text() {
     let min = text_contrast_min(Contrast::Standard);
     let mut checked = 0;
+    let mut skipped = Vec::new();
     for theme in builtins() {
-        for mode in modes(theme) {
+        let apps = std::iter::once(None).chain(theme.apps.keys().map(Some));
+        for (app, mode) in apps.flat_map(|app| modes(theme).into_iter().map(move |mode| (app, mode))) {
             let appearance =
                 Appearance { mode, contrast: Contrast::Standard, size: Size::Compact, text_size: TextSize::Small, reduced_motion: false };
-            let c = resolve(theme, appearance, None).tokens.color;
+            let c = resolve(theme, appearance, app).tokens.color;
             let (s, text) = (&c.surface, &c.text);
             let grounds = [
                 ("surface.background", s.background),
@@ -212,10 +242,13 @@ fn faint_text_meets_the_text_minimum_below_muted_text() {
             for (name, ground) in grounds {
                 let (faint, muted, normal) =
                     (contrast_ratio(text.faint, ground), contrast_ratio(text.muted, ground), contrast_ratio(text.normal, ground));
+                let app = app.map_or(String::new(), |a| format!(" {}", a.as_str()));
+                let fill = format!("{}{app} {mode:?} on {name}", theme.id.as_str());
                 if normal <= min * FAINT_TO_MUTED_GAP {
+                    skipped.push(fill);
                     continue;
                 }
-                let at = format!("{} {mode:?} on {name}: faint {faint:.2}, muted {muted:.2}, normal {normal:.2}", theme.id.as_str());
+                let at = format!("{fill}: faint {faint:.2}, muted {muted:.2}, normal {normal:.2}");
                 assert!(faint >= min, "{at}: faint is below {min:.2}:1");
                 assert!(muted >= faint * FAINT_TO_MUTED_GAP, "{at}: muted is less than {FAINT_TO_MUTED_GAP} times faint");
                 assert!(muted < normal, "{at}: muted is not below normal");
@@ -224,4 +257,6 @@ fn faint_text_meets_the_text_minimum_below_muted_text() {
         }
     }
     assert!(checked > 0, "no text ground was checked");
+    let skipped: BTreeSet<&str> = skipped.iter().map(String::as_str).collect();
+    assert_eq!(skipped, NO_ROOM_FOR_MUTED.iter().copied().collect(), "the fills left out changed");
 }
