@@ -67,15 +67,36 @@ impl Chart {
     }
 }
 
+/// The material each triangle is unwrapped for; triangles in no submesh count as material 0. Returns an error when submeshes of two
+/// materials share a triangle.
+fn triangle_materials(mesh: &Mesh) -> Result<Vec<usize>> {
+    let mut material = vec![None; mesh.triangle_count()];
+    for s in &mesh.submeshes {
+        for t in (s.start / 3) as usize..((s.start as usize + s.count as usize) / 3) {
+            if let Some(m) = material.get_mut(t) {
+                if let Some(other) = *m
+                    && other != s.material
+                {
+                    return Err(GeomError::Invalid(format!("triangle {t} is in submeshes of materials {other} and {}", s.material)));
+                }
+                *m = Some(s.material);
+            }
+        }
+    }
+    Ok(material.into_iter().map(|m| m.unwrap_or(0)).collect())
+}
+
 /// Replace the UVs of `mesh` with an automatic non-overlapping layout: each material gets its
 /// own 0..1 space with charts at least `padding_texels` (minimum 1) away from each other and
 /// the borders at `resolution`. Vertices are split at chart borders; tangents are recomputed.
-/// Returns the number of charts.
+/// Returns the number of charts, or an error, before any change to the mesh, when submeshes of
+/// two materials share a triangle.
 pub fn auto_unwrap(mesh: &mut Mesh, padding_texels: f32, resolution: u32) -> Result<usize> {
     mesh.validate_indices()?;
     if all_triangles_degenerate(mesh) {
         return Err(GeomError::Invalid("every triangle of the mesh is degenerate".into()));
     }
+    let material = triangle_materials(mesh)?;
     if mesh.normals.len() != mesh.positions.len() {
         mesh.compute_normals();
     }
@@ -92,14 +113,6 @@ pub fn auto_unwrap(mesh: &mut Mesh, padding_texels: f32, resolution: u32) -> Res
         let cr = (pos(b) - pos(a)).cross(pos(c) - pos(a));
         area.push(cr.length() * 0.5);
         normal.push(cr.try_normalize());
-    }
-    let mut material = vec![0usize; n];
-    for s in &mesh.submeshes {
-        for t in (s.start / 3) as usize..((s.start as usize + s.count as usize) / 3) {
-            if let Some(m) = material.get_mut(t) {
-                *m = s.material;
-            }
-        }
     }
 
     // Manifold edge adjacency over welded vertices: edge → (face, face, count).
@@ -351,6 +364,21 @@ mod tests {
             let g = UvGBuffer::new(&ball, m, 512, 512).unwrap();
             assert!((g.overlaps as f32) < g.covered_count() as f32 * 0.005 + 1.0, "material {m}: {} overlaps", g.overlaps);
         }
+    }
+
+    #[test]
+    fn triangles_in_two_materials_are_rejected_unchanged() {
+        // Two congruent triangles in material 0; material 1 also lists the first.
+        let p = vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z * 5.0, Vec3::Z * 5.0 + Vec3::X, Vec3::Z * 5.0 + Vec3::Y];
+        let mut m = Mesh::from_parts(p, None, Vec::new(), vec![0, 1, 2, 3, 4, 5], "a").unwrap();
+        m.materials.push("b".into());
+        m.submeshes.push(crate::SubMesh { name: "b".into(), material: 1, start: 0, count: 3 });
+        let before = m.clone();
+        assert!(auto_unwrap(&mut m, 2.0, 64).is_err());
+        assert_eq!(m, before);
+        // The same material listed twice is not a conflict.
+        m.submeshes[1].material = 0;
+        assert_eq!(auto_unwrap(&mut m, 2.0, 64).unwrap(), 2);
     }
 
     #[test]
