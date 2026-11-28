@@ -163,8 +163,12 @@ fn viewport(e: &BytesStart<'_>) -> [f64; 6] {
     });
     let root = |name: &[u8]| {
         let raw = attr(e, name)?;
-        let mm = length(&raw)?;
         let unit = raw.trim().trim_start_matches(|c: char| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')).trim();
+        // A percentage is of a viewport the file doesn't give, so it is no size at all.
+        if unit == "%" {
+            return None;
+        }
+        let mm = length(&raw)?;
         Some(if matches!(unit, "" | "px") { mm * 25.4 / 96. } else { mm })
     };
     let unit = match (vb, root(b"width"), root(b"height")) {
@@ -397,6 +401,16 @@ mod tests {
         });
         assert!(result.is_err());
         assert_eq!(events, ["cut", "shape"]);
+    }
+
+    #[test]
+    fn a_percentage_root_size_reads_the_view_box_as_px() {
+        let scale = |svg: &str| import(svg).unwrap().shapes[0].transform[0];
+        let no_size = scale(r#"<svg viewBox="0 0 200 100"><rect width="10" height="10"/></svg>"#);
+        for root in [r#"width="100%""#, r#"height="50%""#, r#"width="100%" height="100%""#] {
+            let svg = format!(r#"<svg {root} viewBox="0 0 200 100"><rect width="10" height="10"/></svg>"#);
+            assert_eq!(scale(&svg), no_size, "{root}");
+        }
     }
 
     #[test]
