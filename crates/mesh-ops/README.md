@@ -15,7 +15,8 @@ crate has no UI, does no file or network I/O and has no `unsafe` code. File form
 - **UV G-buffer.** `UvGBuffer` records, for each texel of one material's UV space, the triangle
   and barycentrics under the texel center; `surface_at` turns them into a position, normal and
   tangent frame. `UvGBuffer::new` returns an error for a side of 0 or above `MAX_SIDE` (16,384),
-  for more than `MAX_TEXELS` texels (8,192 × 8,192), and when the memory cannot be reserved.
+  for more than `MAX_TEXELS` texels (8,192 × 8,192), when the triangles touch more than
+  `MAX_BAND_ENTRIES` bands of 32 rows in all, and when the memory cannot be reserved.
 - **Primitives.** Sphere, rounded box, cube, cylinder, torus and plane with UVs and tangents, and
   the built-in scenes in `primitives::BUILTINS`.
 - **BVH.** `Bvh` is a binned SAH tree on all three axes with a median split when no split beats a

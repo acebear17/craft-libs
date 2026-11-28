@@ -20,6 +20,11 @@ pub const MAX_SIDE: u32 = 16_384;
 /// space.
 pub const MAX_TEXELS: usize = 1 << 26;
 
+/// Largest number of (triangle, band of 32 rows) pairs a G-buffer bins before rasterizing: a
+/// triangle counts once for every band it touches. The bins take 4 bytes per entry, 512 MiB at
+/// most.
+pub const MAX_BAND_ENTRIES: usize = 1 << 27;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UvGBuffer {
     pub width: u32,
@@ -77,24 +82,48 @@ impl UvGBuffer {
     /// Rasterize the triangles of material `material` at `width × height`.
     ///
     /// Returns an error when `width` or `height` is 0 or above [`MAX_SIDE`], when
-    /// `width × height` is above [`MAX_TEXELS`], or when the buffer's memory cannot be reserved.
+    /// `width × height` is above [`MAX_TEXELS`], when the triangles touch more than
+    /// [`MAX_BAND_ENTRIES`] bands of 32 rows in all, or when the memory cannot be reserved.
     pub fn new(mesh: &Mesh, material: usize, width: u32, height: u32) -> Result<UvGBuffer> {
         let n = checked_texels(width, height)?;
         let (w, h) = (width, height);
         let size = Vec2::new(w as f32, h as f32);
         let bands = h.div_ceil(BAND) as usize;
-        let mut bins: Vec<Vec<u32>> = vec![Vec::new(); bands];
-        for t in mesh.triangles_of(material) {
-            let Some([a, b, c]) = mesh.tri(t) else { continue };
-            let (Some(ua), Some(ub), Some(uc)) = (mesh.uvs.get(a), mesh.uvs.get(b), mesh.uvs.get(c)) else { continue };
+        let span = |t: usize| -> Option<(usize, usize)> {
+            let [a, b, c] = mesh.tri(t)?;
+            let (ua, ub, uc) = (mesh.uvs.get(a)?, mesh.uvs.get(b)?, mesh.uvs.get(c)?);
             let y0 = (ua.y.min(ub.y).min(uc.y) * size.y).floor().max(0.0) as i64;
             let y1 = (ua.y.max(ub.y).max(uc.y) * size.y).ceil().min(size.y) as i64;
             if y1 <= y0 || !ua.is_finite() || !ub.is_finite() || !uc.is_finite() {
-                continue;
+                return None;
             }
-            let (b0, b1) = ((y0 / BAND as i64) as usize, ((y1 - 1).max(0) / BAND as i64) as usize);
-            for bin in bins.iter_mut().take(b1 + 1).skip(b0) {
-                bin.push(t as u32);
+            Some(((y0 / BAND as i64) as usize, ((y1 - 1).max(0) / BAND as i64) as usize))
+        };
+        // The triangles of each band, in mesh order, as one list: band `i` holds
+        // `bins[start[i]..start[i + 1]]`. A counting pass sizes the list before it is reserved.
+        let mut start = vec![0usize; bands + 1];
+        for t in mesh.triangles_of(material) {
+            let Some((b0, b1)) = span(t) else { continue };
+            for s in start.iter_mut().skip(b0 + 1).take(b1 + 1 - b0) {
+                *s += 1;
+            }
+        }
+        for i in 1..start.len() {
+            start[i] = start[i].saturating_add(start[i - 1]);
+        }
+        let entries = start.last().copied().unwrap_or(0);
+        if entries > MAX_BAND_ENTRIES {
+            return Err(GeomError::Invalid(format!("G-buffer triangles touch {entries} bands in all, more than {MAX_BAND_ENTRIES}")));
+        }
+        let mut bins = filled(entries, 0u32)?;
+        let mut next = start.clone();
+        for t in mesh.triangles_of(material) {
+            let Some((b0, b1)) = span(t) else { continue };
+            for k in next.iter_mut().take(b1 + 1).skip(b0) {
+                if let Some(slot) = bins.get_mut(*k) {
+                    *slot = t as u32;
+                }
+                *k += 1;
             }
         }
         let mut tri = filled(n, NO_TRI)?;
@@ -108,7 +137,11 @@ impl UvGBuffer {
                 let mut overlaps = 0u32;
                 let row0 = bi as u32 * BAND;
                 let rows = (tri.len() as u32) / w;
-                for &t in bins.get(bi).map(Vec::as_slice).unwrap_or(&[]) {
+                let band = match (start.get(bi), start.get(bi + 1)) {
+                    (Some(&s), Some(&e)) => bins.get(s..e).unwrap_or(&[]),
+                    _ => &[],
+                };
+                for &t in band {
                     let Some([a, b, c]) = mesh.tri(t as usize) else { continue };
                     let (Some(&ua), Some(&ub), Some(&uc)) = (mesh.uvs.get(a), mesh.uvs.get(b), mesh.uvs.get(c)) else { continue };
                     let (pa, pb, pc) = (ua * size, ub * size, uc * size);
@@ -240,6 +273,25 @@ mod tests {
         assert!(UvGBuffer::new(&m, 0, 0, 1).is_err());
         let g = UvGBuffer::new(&m, 0, 64, 32).unwrap();
         assert_eq!((g.width, g.height, g.tri.len(), g.bary.len()), (64, 32, 2_048, 2_048));
+    }
+
+    #[test]
+    fn too_many_band_entries_are_rejected() {
+        // 2^27 / 512 + 1 triangles, each spanning all 512 bands of a 1 × 16,384 buffer.
+        let tall = (MAX_BAND_ENTRIES / 512 + 1) as u32;
+        let mut m = Mesh {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            uvs: vec![Vec2::ZERO, Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0)],
+            ..Mesh::default()
+        };
+        m.indices = (0..tall).flat_map(|_| [0, 1, 2]).collect();
+        m.submeshes = vec![crate::SubMesh { name: "m".into(), material: 0, start: 0, count: tall * 3 }];
+        assert!(UvGBuffer::new(&m, 0, 1, MAX_SIDE).is_err());
+        m.indices.truncate(3);
+        m.submeshes[0].count = 3;
+        let g = UvGBuffer::new(&m, 0, 1, MAX_SIDE).unwrap();
+        // The texel centers at u = 0.5 lie inside the triangle down to v = 0.5.
+        assert_eq!(g.covered_count(), MAX_SIDE as usize / 2);
     }
 
     #[test]
