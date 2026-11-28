@@ -168,7 +168,7 @@ fn icons(manifest: &Table, sets: &[Set]) -> Vec<Entry> {
                     assert!(file.is_some(), "icons/icons.toml: icon `{name}` has a tip for `{}`, which has no file for it", set.id);
                     let xy: Vec<f64> = point
                         .as_array()
-                        .map(|a| a.iter().filter_map(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).collect())
+                        .and_then(|a| a.iter().map(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))).collect::<Option<Vec<_>>>())
                         .unwrap_or_default();
                     assert!(
                         xy.len() == 2 && xy.iter().all(|c| (0.0..=24.0).contains(c)),
